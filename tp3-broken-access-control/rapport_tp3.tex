@@ -1,0 +1,265 @@
+\documentclass{rapportENSIAS}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel} % à retirer si la classe gère déjà le français
+\usepackage{array}
+\usepackage{verbatim}
+
+\UE{Sécurité des applications et des services}
+\sujet{Travaux pratiques -- Cycle ingénieur SIT 3}
+\titre{TP 3 : Défaillances de contrôle d'accès}
+\enseignant{À compléter}
+\eleves{Hiba EL HJOUJI}
+
+\begin{document}
+
+\fairemarges
+\fairepagedegarde
+\tabledematieres
+\newpage
+
+% =====================================================================
+\section{Introduction}
+% =====================================================================
+
+Le contrôle d'accès est un mécanisme essentiel de la sécurité des applications Web : il détermine les ressources auxquelles un utilisateur peut accéder et les opérations qu'il est autorisé à effectuer. Une défaillance de contrôle d'accès (\textit{Broken Access Control}) survient lorsque l'application n'applique pas correctement les restrictions liées à l'identité, au rôle ou aux permissions de l'utilisateur. Elle peut entraîner la divulgation d'informations confidentielles, la modification non autorisée de données ou l'élévation de privilèges.
+
+\textbf{Objectifs du TP.} Ce TP vise à :
+\begin{itemize}
+  \item distinguer l'authentification de l'autorisation ;
+  \item comprendre les contrôles d'accès horizontal et vertical ;
+  \item identifier une vulnérabilité de type IDOR (\textit{Insecure Direct Object Reference}) ;
+  \item intercepter et analyser des requêtes HTTP avec Burp Suite ;
+  \item vérifier si les contrôles d'accès sont appliqués côté serveur ;
+  \item évaluer l'impact d'une défaillance et proposer des corrections et des tests de non-régression.
+\end{itemize}
+
+\textbf{Cadre éthique.} Toutes les manipulations ont été réalisées exclusivement dans l'environnement autorisé de PortSwigger Web Security Academy. Ces techniques ne doivent jamais être testées sur des applications réelles sans autorisation explicite.
+
+\subsection{Rappels théoriques}
+
+\subsubsection*{Authentification et autorisation}
+L'\textbf{authentification} vérifie \textit{qui} est l'utilisateur (identifiant et mot de passe, second facteur, etc.). L'\textbf{autorisation} détermine \textit{ce que} cet utilisateur identifié a le droit de faire ou de consulter. Une application peut authentifier correctement un utilisateur tout en échouant à contrôler ses droits : c'est précisément le cas des défaillances de contrôle d'accès.
+
+\subsubsection*{Contrôle d'accès horizontal et vertical}
+Le contrôle d'accès \textbf{horizontal} empêche un utilisateur d'accéder aux ressources d'un autre utilisateur de même niveau de privilège (par exemple, consulter le compte d'un autre client). Le contrôle d'accès \textbf{vertical} empêche un utilisateur disposant de privilèges limités d'accéder à des fonctions réservées à un rôle supérieur (par exemple, une fonction d'administration). Le non-respect du premier constitue un accès horizontal non autorisé, celui du second une élévation de privilèges.
+
+\subsubsection*{Contrôle d'accès côté client et côté serveur}
+Les contrôles côté \textbf{client} (liens ou boutons masqués, JavaScript, champs cachés) relèvent de l'interface et peuvent être contournés par l'utilisateur, qui maîtrise entièrement son navigateur et peut forger n'importe quelle requête. Seuls les contrôles côté \textbf{serveur}, appliqués à chaque requête, constituent une vraie protection.
+
+\subsubsection*{Vulnérabilité IDOR}
+Une IDOR (\textit{Insecure Direct Object Reference}) apparaît lorsque l'application utilise un identifiant fourni par le client pour accéder directement à un objet (compte, facture, fichier) sans vérifier que cet objet appartient à l'utilisateur connecté. \textbf{Exemple :} la requête \texttt{GET /my-account?id=wiener} renvoie le compte de \texttt{wiener} ; en remplaçant l'identifiant par \texttt{carlos}, l'application renvoie le compte de \texttt{carlos}, alors que la session est celle de \texttt{wiener}.
+
+% =====================================================================
+\section{Environnement}
+% =====================================================================
+
+\begin{itemize}
+  \item \textbf{Burp Suite Community Edition} (v2026.9.2) : proxy d'interception, historique HTTP (\textit{HTTP history}) et Repeater.
+  \item \textbf{Navigateur intégré à Burp} (Chromium), dont le trafic passe par le proxy.
+  \item \textbf{PortSwigger Web Security Academy}, thème \textit{Access control}, avec deux laboratoires volontairement vulnérables :
+  \begin{enumerate}
+    \item \textit{User ID controlled by request parameter} (contrôle d'accès horizontal / IDOR) ;
+    \item \textit{Unprotected admin functionality} (contrôle d'accès vertical).
+  \end{enumerate}
+\end{itemize}
+
+\insererfigure{figures/s0_burp_navigateur}{6cm}{Burp Suite Community et son navigateur intégré}{fig:env}
+
+% =====================================================================
+\section{Analyse du premier scénario : contrôle d'accès horizontal / IDOR}
+% =====================================================================
+
+\subsection{Scénario et démarche}
+
+Le laboratoire \textit{User ID controlled by request parameter} propose une page \og Mon compte \fg{} affichant le nom d'utilisateur et la clé d'API de l'utilisateur connecté. L'objectif est de récupérer la clé d'API de l'utilisateur \texttt{carlos} en étant connecté en tant que \texttt{wiener}.
+
+\begin{enumerate}
+  \item Connexion avec le compte fourni par le laboratoire (\texttt{wiener}).
+  \item Accès à la fonctionnalité \og My account \fg{} et observation de l'URL : \texttt{/my-account?id=wiener}.
+  \item Identification, dans l'historique HTTP de Burp, de la requête correspondante et du paramètre \texttt{id}.
+  \item Modification de la valeur \texttt{wiener} en \texttt{carlos}, dans le navigateur puis dans Repeater.
+  \item Analyse de la réponse du serveur.
+  \item Soumission de la clé d'API de \texttt{carlos} pour valider le laboratoire.
+\end{enumerate}
+
+\insererfigure{figures/s1_00_login}{5cm}{Connexion avec le compte wiener}{fig:s1login}
+
+\insererfigure{figures/s1_01_compte_wiener}{6cm}{Compte de wiener (clé d'API masquée) et modification de l'URL vers id=carlos}{fig:s1own}
+
+\subsection{Requêtes HTTP observées}
+
+\begin{verbatim}
+GET /my-account?id=wiener HTTP/2        -> 200 OK  (longueur 3802)
+GET /my-account?id=carlos HTTP/2        -> 200 OK  (longueur 3802)
+\end{verbatim}
+
+La seconde requête est envoyée avec la \textbf{même session} (le cookie, masqué sur la capture, est celui de \texttt{wiener}) : seul le paramètre \texttt{id} a changé.
+
+\insererfigure{figures/s1_02_historique_http}{3cm}{Historique HTTP : requêtes id=wiener (\#60) et id=carlos (\#62), toutes deux en 200}{fig:s1hist}
+
+\insererfigure{figures/s1_04_repeater_carlos}{7cm}{Repeater : requête GET /my-account?id=carlos (cookie de session masqué)}{fig:s1rep}
+
+\insererfigure{figures/s1_05_resultat_carlos}{6cm}{Compte de carlos affiché depuis la session de wiener, laboratoire résolu (clé d'API masquée)}{fig:s1res}
+
+\subsection{Résultats observés}
+
+Le serveur renvoie la page du compte de \texttt{carlos}, avec sa clé d'API, alors que la session est celle de \texttt{wiener}. Les deux réponses ont le même code de statut (200) et la même longueur (3802 octets), ce qui montre que le serveur traite les deux requêtes de la même façon, sans vérification de propriété. La soumission de la clé d'API de \texttt{carlos} valide le laboratoire.
+
+\subsection{Réponses aux questions}
+
+\textbf{Q1) Quel élément de la requête permet de désigner la ressource demandée ?}\\
+Le paramètre de requête \texttt{id} (\texttt{?id=wiener}) désigne le compte à afficher. Il est entièrement contrôlé par le client.
+
+\textbf{Q2) Pourquoi la modification d'un identifiant peut-elle révéler une défaillance de contrôle d'accès ?}\\
+Parce que l'identifiant est une donnée fournie par le client. Si le changement de sa valeur donne accès aux données d'un autre utilisateur, cela prouve que le serveur fait confiance à cette valeur au lieu de vérifier que la ressource appartient à l'utilisateur authentifié. L'authentification est correcte (la session est valide), mais l'autorisation est absente.
+
+\textbf{Q3) Quel est l'impact potentiel sur la confidentialité des données ?}\\
+L'impact est élevé : un utilisateur authentifié peut lire les données personnelles et la clé d'API de n'importe quel autre utilisateur. Comme les identifiants sont ici des noms d'utilisateur prévisibles, un attaquant peut énumérer automatiquement les comptes et extraire les données de tous les utilisateurs. La clé d'API volée peut ensuite servir à agir au nom de la victime.
+
+\textbf{Q4) Quelle vérification le serveur devrait-il effectuer avant de retourner les informations ?}\\
+Le serveur doit comparer le propriétaire de la ressource demandée avec l'identité de l'utilisateur authentifié, déduite de la \textbf{session} et non d'un paramètre. La solution la plus sûre consiste à ignorer le paramètre \texttt{id} et à charger directement le compte de l'utilisateur de la session. En cas de différence, le serveur doit répondre par une erreur 403 (ou 404) et journaliser la tentative.
+
+\subsection{Analyse personnelle et correction proposée}
+
+Cette vulnérabilité montre qu'une session valide ne suffit pas : elle prouve l'identité, pas le droit d'accès à une ressource donnée. Le défaut vient de l'utilisation d'une référence directe fournie par le client sans contrôle de propriété.
+
+\textbf{Correction côté serveur} (pseudo-code) :
+\begin{verbatim}
+user = session.user                      # identité issue de la session
+if requested_id != user.id and not user.is_admin:
+    return 403                           # refus par défaut
+return load_account(user.id)
+\end{verbatim}
+
+\textbf{Test de vérification :} connecté en tant que \texttt{wiener}, envoyer \texttt{GET /my-account?id=carlos} ; le serveur doit répondre 403 ou 404 et ne retourner aucune donnée de \texttt{carlos}.
+
+% =====================================================================
+\section{Analyse du deuxième scénario : contrôle d'accès vertical}
+% =====================================================================
+
+\subsection{Scénario et démarche}
+
+Le laboratoire \textit{Unprotected admin functionality} contient un panneau d'administration qui n'est protégé par aucun contrôle. L'objectif est de l'atteindre sans privilège et de supprimer l'utilisateur \texttt{carlos}.
+
+\begin{enumerate}
+  \item Identification des fonctionnalités qui devraient être réservées à un administrateur (liste des utilisateurs, suppression de comptes).
+  \item Consultation du fichier \texttt{/robots.txt}, qui révèle un chemin censé rester caché.
+  \item Accès direct à ce chemin, sans aucune authentification.
+  \item Utilisation de la fonction de suppression pour supprimer \texttt{carlos}.
+  \item Analyse des requêtes et réponses dans l'historique de Burp.
+\end{enumerate}
+
+\insererfigure{figures/s2_01_robots}{3.5cm}{Fichier robots.txt : Disallow: /administrator-panel}{fig:s2robots}
+
+\insererfigure{figures/s2_02_panneau_admin}{6cm}{Panneau d'administration accessible sans connexion (liste des utilisateurs avec liens Delete)}{fig:s2panel}
+
+\subsection{Requêtes HTTP observées}
+
+\begin{verbatim}
+GET /robots.txt                                   -> 200 OK
+GET /my-account                                   -> 302 (redirection vers /login)
+GET /administrator-panel                          -> 200 OK  (liste des utilisateurs)
+GET /administrator-panel/delete?username=carlos   -> 302 Found
+                                                     Location: /administrator-panel
+\end{verbatim}
+
+Le contraste est révélateur : la page \texttt{/my-account} redirige vers la connexion (aucune session authentifiée), alors que \texttt{/administrator-panel} répond 200 à la même session anonyme.
+
+\insererfigure{figures/s2_05_requete_delete}{9cm}{Requête de suppression de carlos et réponse 302 (cookie masqué)}{fig:s2delete}
+
+\insererfigure{figures/s2_04_resultat}{6cm}{Utilisateur supprimé, laboratoire résolu}{fig:s2res}
+
+\subsection{Résultats observés}
+
+Le panneau d'administration est accessible à n'importe quel visiteur, sans authentification ni vérification de rôle. La suppression d'un compte est exécutée par une simple requête GET : le serveur effectue l'action puis redirige vers le panneau (302), sans jamais répondre 401 ou 403. L'utilisateur \texttt{carlos} est supprimé et le laboratoire est validé.
+
+\subsection{Réponses aux questions}
+
+\textbf{Q1) Pourquoi masquer un lien d'administration dans l'interface ne constitue-t-il pas une protection suffisante ?}\\
+Masquer un lien ne modifie que l'interface, pas le serveur. L'URL reste accessible à qui la connaît ou la découvre (fichier \texttt{robots.txt}, code source, journaux, énumération de chemins). La sécurité par l'obscurité n'est pas un contrôle d'accès : ici, \texttt{robots.txt} indique même explicitement le chemin à protéger.
+
+\textbf{Q2) Quelle est la différence entre un accès horizontal non autorisé et une élévation de privilèges ?}\\
+Dans un accès horizontal non autorisé, l'utilisateur reste au même niveau de privilège mais accède aux ressources d'un autre utilisateur (scénario 1). Dans une élévation de privilèges, il obtient des fonctions d'un rôle supérieur, ici l'administration (scénario 2).
+
+\textbf{Q3) Quelles conséquences sur l'intégrité et la disponibilité de l'application ?}\\
+\textit{Intégrité :} un attaquant peut supprimer ou modifier des comptes et des données. \textit{Disponibilité :} la suppression de comptes ou de ressources empêche les utilisateurs légitimes d'utiliser le service. Si le panneau permet aussi de créer des comptes ou de changer des rôles, la compromission peut devenir totale.
+
+\textbf{Q4) Comment garantir que chaque requête administrative est correctement autorisée ?}\\
+En appliquant un contrôle de rôle côté serveur sur \textbf{chaque} route administrative, de façon centralisée (middleware ou filtre), avec un refus par défaut : toute route non explicitement autorisée est interdite. Il faut aussi limiter les actions sensibles aux méthodes adaptées (POST avec protection anti-CSRF plutôt qu'un GET), journaliser les accès et tester les routes avec plusieurs rôles.
+
+\subsection{Règle d'autorisation attendue, analyse personnelle et correction}
+
+\textbf{Règle qui aurait dû s'appliquer :} \og seuls les utilisateurs authentifiés ayant le rôle \texttt{admin} peuvent accéder à \texttt{/administrator-panel/*} ; les autres reçoivent 401 (anonyme) ou 403 (utilisateur non privilégié) \fg.
+
+Cette vulnérabilité est plus grave que la précédente : elle n'exige même pas d'être connecté. Le développeur a considéré que l'absence de lien visible suffisait, ce qui confond discrétion et protection.
+
+\textbf{Correction côté serveur} (pseudo-code) :
+\begin{verbatim}
+@require_role("admin")                   # appliqué à toutes les routes /administrator-panel/*
+def admin_routes(request):
+    ...
+# comportement par défaut : refus (401 si anonyme, 403 si rôle insuffisant)
+\end{verbatim}
+
+\textbf{Test de vérification :} demander \texttt{/administrator-panel} sans session (attendu : 401 ou redirection vers la connexion) puis avec un compte standard (attendu : 403), et vérifier qu'aucune suppression n'est effectuée.
+
+% =====================================================================
+\section{Synthèse : impacts et mesures correctives}
+% =====================================================================
+
+\renewcommand{\arraystretch}{1.3}
+\begin{center}
+\begin{tabular}{|>{\raggedright\arraybackslash}p{2.6cm}|>{\raggedright\arraybackslash}p{6cm}|>{\raggedright\arraybackslash}p{6cm}|}
+\hline
+ & \textbf{Vulnérabilité 1 : IDOR (horizontal)} & \textbf{Vulnérabilité 2 : fonction admin non protégée (vertical)} \\
+\hline
+\textbf{Ressource ou fonctionnalité} & Page \texttt{/my-account?id=} & Panneau \texttt{/administrator-panel} et suppression d'utilisateur \\
+\hline
+\textbf{Rôle et permissions attendues} & Utilisateur authentifié : accès à son propre compte uniquement & Administrateur uniquement \\
+\hline
+\textbf{Comportement observé} & Tout identifiant renvoie les données du compte demandé (200) & Tout visiteur, même anonyme, accède au panneau et supprime des comptes \\
+\hline
+\textbf{Comportement attendu} & 403 ou 404 si l'identifiant ne correspond pas à l'utilisateur de la session & 401 pour un anonyme, 403 pour un utilisateur non administrateur \\
+\hline
+\textbf{Impact C / I / A} & C : élevé (données et clé d'API exposées) ; I : faible à moyen (usurpation via la clé volée) ; A : nul & C : moyen (liste des utilisateurs) ; I : élevé (suppression et modification) ; A : élevé (suppression de comptes) \\
+\hline
+\textbf{Mesures correctives (serveur)} & Déduire l'utilisateur de la session ; contrôler la propriété de chaque ressource ; autorisation centralisée ; refus par défaut & Contrôle de rôle sur toutes les routes d'administration ; refus par défaut ; moindre privilège ; POST avec anti-CSRF pour les actions sensibles \\
+\hline
+\textbf{Test de validation} & Connecté en \texttt{wiener}, demander \texttt{id=carlos} : attendu 403 ou 404 & Demander l'URL d'administration sans session puis avec un compte standard : attendu 401 puis 403 \\
+\hline
+\textbf{Test de non-régression} & Test automatisé avec deux comptes, exécuté dans le pipeline d'intégration continue & Test automatisé par rôle (anonyme, utilisateur, admin) sur chaque route d'administration \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection*{Recommandations examinées}
+
+\begin{itemize}
+  \item \textbf{Principe du moindre privilège :} ne donner à chaque rôle que les droits strictement nécessaires, afin de limiter les dégâts en cas de faille.
+  \item \textbf{Refus par défaut :} toute opération qui n'est pas explicitement autorisée est interdite ; une route oubliée reste alors protégée.
+  \item \textbf{Vérification côté serveur de chaque requête sensible :} ne jamais compter sur l'interface ou sur des valeurs fournies par le client.
+  \item \textbf{Contrôle par propriétaire et permissions :} chaque accès à une ressource vérifie son propriétaire et les droits du rôle.
+  \item \textbf{Identifiants difficiles à deviner $\neq$ contrôle d'accès :} des UUID réduisent l'énumération mais ne remplacent pas la vérification d'autorisation, car un identifiant peut fuiter.
+  \item \textbf{Tests systématiques avec plusieurs comptes et rôles :} anonyme, utilisateur standard, administrateur, pour chaque fonctionnalité.
+  \item \textbf{Tests de non-régression :} automatiser les tests précédents pour empêcher la réapparition des vulnérabilités après une modification du code.
+\end{itemize}
+
+% =====================================================================
+\section{Conclusion}
+% =====================================================================
+
+\textbf{Quelle est la principale faiblesse commune aux scénarios étudiés ?}\\
+Dans les deux cas, le serveur fait confiance au client au lieu d'appliquer une autorisation à chaque requête : un paramètre modifiable (\texttt{id}) dans le premier scénario, un lien simplement masqué dans le second.
+
+\textbf{Pourquoi le contrôle d'accès doit-il être appliqué côté serveur ?}\\
+Parce que le client est sous le contrôle de l'utilisateur : tout ce qui s'y trouve (liens, scripts, champs, requêtes) peut être modifié, rejoué ou forgé avec un outil comme Burp Suite. Seul le serveur, qui détient les règles et l'identité issue de la session, peut garantir qu'elles sont respectées.
+
+\textbf{Quelle différence entre démontrer une vulnérabilité et vérifier qu'une correction est efficace ?}\\
+Démontrer une vulnérabilité consiste à prouver qu'une requête non autorisée réussit. Vérifier une correction consiste à prouver, par des tests répétables et automatisés, que cette même requête est désormais refusée pour tous les rôles concernés, tout en s'assurant que les accès légitimes continuent de fonctionner.
+
+\medskip
+Ce TP a permis de manipuler concrètement deux défaillances classiques du contrôle d'accès, de les analyser avec Burp Suite et de proposer des corrections côté serveur accompagnées de tests de validation et de non-régression.
+
+\end{document}
