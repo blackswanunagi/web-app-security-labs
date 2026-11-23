@@ -2,7 +2,7 @@
 
 Four web attack scenarios against **DVWA** (security level *low*) on **Metasploitable 2**, from **Kali Linux** with **Metasploit**, each followed by a vulnerability sheet (C/I/A impact, server-side fixes) and regression tests.
 
-👥 Joint lab — **Hiba El Hjouji** & **Ikram Ezziouani**
+👥 Lab performed together with **Ikram Ezziouani**; report written by **Hiba El Hjouji**.
 📄 Full report (French): [`TP4_Web_Attacks_report.pdf`](TP4_Web_Attacks_report.pdf) · Screenshots: [`figures/`](figures/)
 
 | # | Vulnerability | What we did | Server-side fix |
